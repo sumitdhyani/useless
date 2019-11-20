@@ -1,5 +1,6 @@
 #pragma once
 #include "ConsumerThread.h"
+typedef std::function<void()> Task;
 
 class WorkerThread : public FifoConsumerThread<Task>
 {

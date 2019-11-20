@@ -9,8 +9,6 @@
 #include <memory>
 #include "ConditionVariable.h"
 
-typedef std::function<void()> Task;
-
 template <class T>
 class IConsumerThread
 {
