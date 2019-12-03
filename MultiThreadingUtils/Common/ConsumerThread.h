@@ -23,47 +23,61 @@ public:
 template <class T>
 class FifoConsumerThread : public IConsumerThread<T>
 {
-	std::shared_ptr<std::vector<T>> m_queue;
-	std::shared_ptr<std::mutex> m_mutex;
-	std::shared_ptr<ConditionVariable> m_cond;
+protected:
+	typedef std::vector<T> ConsumerQueue;
+	DEFINE_PTR(ConsumerQueue)
+
+	//Visible to only subclasses, as owning this condition variable by the client code can be dangerous
+	//in case the application programmer tries to do something fancy but is not aware of the dangerous edge cases
+	//The most likely side effects can then be an infinitely waiting thread or unexpected spurious wakeups
+	FifoConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond )
+		:m_queue(queue),
+		m_mutex(mutex),
+		m_predicate(predicate),
+		m_cond(cond)
+	{
+		m_terminate = false;
+		m_thread = stdThread(&FifoConsumerThread::run, this);
+	}
+private:
+	ConsumerQueuePtr m_queue;
+	stdMutexPtr m_mutex;
+	ConditionVariablePtr m_cond;
 	std::atomic<bool> m_terminate;
-	std::thread m_thread;
+	stdThread m_thread;
+	std::function<void(T)> m_predicate;
 
 	virtual void run()
 	{
 		while (!m_terminate)
 		{
-			std::vector<T> local;
+			ConsumerQueue local;
 
 			{
-				std::unique_lock<std::mutex> lock(*m_mutex);
+				stdUniqueLock lock(*m_mutex);
 				m_queue->swap(local);
 			}
 
 			for(auto const& currentItem : local)
-				processItem(currentItem);
+				m_predicate(currentItem);
 
 			m_cond->wait();
 		}
 	}
 
-protected:
-	virtual void processItem(T item) = 0;
+
 public:
 
-	FifoConsumerThread(std::shared_ptr<std::vector<T>> queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<ConditionVariable> cond)
-		:m_queue(queue),
-		 m_mutex(mutex),
-		 m_cond(cond)
+	FifoConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate)
+		:FifoConsumerThread(queue, mutex, predicate, ConditionVariablePtr(new ConditionVariable))
 	{
-		m_terminate = false;
-		m_thread = std::thread(&FifoConsumerThread::run, this);
 	}
+
 
 	virtual void push(T item)
 	{
 		{
-			std::unique_lock<std::mutex> lock(*m_mutex);
+			stdUniqueLock lock(*m_mutex);
 			m_queue->push_back(item);
 		}
 
@@ -72,12 +86,21 @@ public:
 
 	virtual void kill()
 	{
-		std::unique_lock<std::mutex> lock(*m_mutex);
+		stdUniqueLock lock(*m_mutex);
 		if (!m_terminate)
 		{
 			m_terminate = true;
 			lock.unlock();
-			m_cond->notify_one();
+			//To avoid a spurious wakeup during kill process, to ensure we are able to wakeup the
+			//Thread owned by this object, we need to notify_all on this condition variable as this condition variable
+			//is shared by all the threads in case they belong to a threadpool
+			//Downside is that all threads will be woken up and contention
+			//is likely to happen between rest of the peer threads in the pool
+			//In case this is a standalone thread, i.e. a thread which is not a part of the threadpool, no performance
+			//impact will be there
+			//This will certainly involve spurious wakeups but the thing is we know when these spuirious wakeups will occur and the 
+			//impact and are ok with it
+			m_cond->notify_all();
 			m_thread.join();
 		}
 	}
@@ -88,37 +111,44 @@ public:
 	}
 };
 
-
-
 template <class T>
 class TimedConsumerThread : public IConsumerThread<std::pair<std::chrono::system_clock::time_point, T>>
 {
-	typedef std::pair<std::chrono::system_clock::time_point, T> TimeItemPair;
-	std::shared_ptr<std::vector<TimeItemPair>> m_itemQueue;
-	std::shared_ptr<std::mutex> m_mutex;
-	std::shared_ptr<ConditionVariable> m_cond;
-	std::map<std::chrono::system_clock::time_point, std::vector<T>> m_processingQueue;
-	std::atomic<bool> m_terminate;
-	std::thread m_thread;
-
 protected:
-	virtual void processItem(T item) = 0;
+	typedef std::pair<std::chrono::system_clock::time_point, T> TimeItemPair;
+	typedef std::vector<TimeItemPair> ConsumerQueue;
+	DEFINE_PTR(ConsumerQueue)
 
-public:
-
-	TimedConsumerThread(std::shared_ptr<std::vector<TimeItemPair>> queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<ConditionVariable> cond)
+	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond)
 		:m_itemQueue(queue),
 		m_mutex(mutex),
+		m_predicate(predicate),
 		m_cond(cond)
 	{
 		m_terminate = false;
-		m_thread = std::thread(&TimedConsumerThread::run, this);
+		m_thread = stdThread(&TimedConsumerThread::run, this);
+	}
+
+private:
+	ConsumerQueuePtr m_itemQueue;
+	stdMutexPtr m_mutex;
+	ConditionVariablePtr m_cond;
+	std::map<std::chrono::system_clock::time_point, std::vector<T>> m_processingQueue;
+	std::atomic<bool> m_terminate;
+	stdThread m_thread;
+	std::function<void(T)> m_predicate;
+
+public:
+
+	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate)
+		:TimedConsumerThread(queue, mutex, predicate, ConditionVariablePtr(new ConditionVariable))
+	{
 	}
 
 	virtual void push(TimeItemPair timeItemPair)
 	{
 		{
-			std::unique_lock<std::mutex> lock(*m_mutex);
+			stdUniqueLock lock(*m_mutex);
 			m_itemQueue->push_back(timeItemPair);
 		}
 
@@ -130,10 +160,10 @@ public:
 		while (!m_terminate)
 		{
 			{
-				std::vector<TimeItemPair> local;
+				ConsumerQueue local;
 
 				{
-					std::unique_lock<std::mutex> lock(*m_mutex);
+					stdUniqueLock lock(*m_mutex);
 					m_itemQueue->swap(local);
 				}
 
@@ -147,7 +177,7 @@ public:
 				{
 					auto const& processingQueue = it->second;
 					for (auto const& item : processingQueue)
-						processItem(item);
+						m_predicate(item);
 
 					it++;
 				}
@@ -162,12 +192,12 @@ public:
 
 	virtual void kill()
 	{
-		std::unique_lock<std::mutex> lock(*m_mutex);
+		stdUniqueLock lock(*m_mutex);
 		if (!m_terminate)
 		{
 			m_terminate = true;
 			lock.unlock();//Ugly but necessary
-			m_cond->notify_one();
+			m_cond->notify_all();
 			m_thread.join();
 		}
 	}

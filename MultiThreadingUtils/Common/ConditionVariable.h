@@ -2,10 +2,10 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
-
+#include "CommonDefs.h"
 class ConditionVariable
 {
-	std::condition_variable m_cond;
+	stdConnditionVariable m_cond;
 	std::mutex m_mutex;
 	bool m_signalled;
 
@@ -25,12 +25,12 @@ public:
 
 	void wait()
 	{
-		std::unique_lock<std::mutex> lock(m_mutex);
+		stdUniqueLock lock(m_mutex);
 		m_cond.wait(lock, std::bind(&ConditionVariable::signalled, this));
 		m_signalled = false;
 	}
 
-	void wait(std::unique_lock<std::mutex>& applicationLock)
+	void wait(stdUniqueLock& applicationLock)
 	{
 		applicationLock.unlock();
 		wait();
@@ -39,12 +39,12 @@ public:
 
 	void wait_until(std::chrono::system_clock::time_point time)
 	{
-		std::unique_lock<std::mutex> lock(m_mutex);
+		stdUniqueLock lock(m_mutex);
 		m_cond.wait_until(lock, time, std::bind(&ConditionVariable::signalled, this));
 		m_signalled = false;
 	}
 
-	void wait_until(std::chrono::system_clock::time_point time, std::unique_lock<std::mutex>& applicationLock)
+	void wait_until(std::chrono::system_clock::time_point time, stdUniqueLock& applicationLock)
 	{
 		applicationLock.unlock();
 		wait_until(time);
@@ -54,12 +54,12 @@ public:
 
 	void wait_for(std::chrono::system_clock::duration duration)
 	{
-		std::unique_lock<std::mutex> lock(m_mutex);
+		stdUniqueLock lock(m_mutex);
 		m_cond.wait_for(lock, duration, std::bind(&ConditionVariable::signalled, this));
 		m_signalled = false;
 	}
 
-	void wait_for(std::chrono::system_clock::duration duration, std::unique_lock<std::mutex>& applicationLock)
+	void wait_for(std::chrono::system_clock::duration duration, stdUniqueLock& applicationLock)
 	{
 		applicationLock.unlock();
 		wait_for(duration);
@@ -69,7 +69,7 @@ public:
 	void notify_one()
 	{
 		{
-			std::unique_lock<std::mutex> lock(m_mutex);
+			stdUniqueLock lock(m_mutex);
 			m_signalled = true;
 		}
 		m_cond.notify_one();
@@ -78,7 +78,7 @@ public:
 	void notify_all()
 	{
 		{
-			std::unique_lock<std::mutex> lock(m_mutex);
+			stdUniqueLock lock(m_mutex);
 			m_signalled = true;
 		}
 		m_cond.notify_all();
@@ -89,3 +89,4 @@ public:
 		return m_signalled;
 	}
 };
+DEFINE_PTR(ConditionVariable)

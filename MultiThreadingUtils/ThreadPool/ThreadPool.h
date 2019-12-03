@@ -13,24 +13,31 @@ class ThreadPool
 {
 	std::vector<std::shared_ptr<WorkerThread>> m_workers;
 	std::shared_ptr<std::vector<Task>> m_queue;
-	std::shared_ptr<std::mutex> m_mutex;
-	std::shared_ptr<ConditionVariable> m_cond;
-public:
-	ThreadPool(int numThreads, std::shared_ptr<std::vector<Task>> queue, std::shared_ptr<std::mutex> mutex, std::shared_ptr<ConditionVariable> cond)
+	stdMutexPtr m_mutex;
+	ConditionVariablePtr m_cond;
+
+protected:
+	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex, ConditionVariablePtr cond)
 		:m_queue(queue),
 		m_mutex(mutex),
 		m_cond(cond)
 	{
-		for (int i = 0; i < numThreads; i++)
+		for (UINT i = 0; i < numThreads; i++)
 		{
 			m_workers.push_back(std::shared_ptr<WorkerThread>(new WorkerThread(queue, mutex, cond)));
 		}
 	}
 
+public:
+	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex):
+		ThreadPool(numThreads, queue, mutex, ConditionVariablePtr(new ConditionVariable))
+	{
+	}
+
 	virtual void push(Task task)
 	{
 		{
-			std::unique_lock<std::mutex> lock(*m_mutex);
+			stdUniqueLock lock(*m_mutex);
 			m_queue->push_back(task);
 		}
 

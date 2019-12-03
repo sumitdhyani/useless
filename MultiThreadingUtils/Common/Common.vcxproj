@@ -141,6 +141,7 @@
     <ClCompile Include="ConsumerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CommonDefs.h" />
     <ClInclude Include="ConditionVariable.h" />
     <ClInclude Include="ConsumerThread.h" />
   </ItemGroup>
