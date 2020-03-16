@@ -3,24 +3,32 @@
 #include "CommonDefs.h"
 typedef std::function<void()> Task;
 
-class WorkerThread : public FifoConsumerThread<Task>
+class WorkerThread
 {
 	friend class ThreadPool;
+	std::shared_ptr<FifoConsumerThread<Task>> m_consumer;
 protected:
-	virtual void processItem(Task task)
-	{
-		task();
-	}
+	
 
-	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex, ConditionVariablePtr cond) :
-		FifoConsumerThread<Task>(queue, mutex, [](Task task) {task(); }, cond)
-	{}
+	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex, ConditionVariablePtr cond)
+	{
+		m_consumer = std::shared_ptr<FifoConsumerThread<Task>>(new FifoConsumerThread<Task>(queue, mutex, [](Task task) {task();}, cond));
+	}
 
 public:
 	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex) :
 		WorkerThread(queue, mutex, ConditionVariablePtr(new ConditionVariable))
 	{}
 
+	void push(Task task)
+	{
+		m_consumer->push(task);
+	}
+
+	void kill()
+	{
+		m_consumer->kill();
+	}
 };
 DEFINE_PTR(WorkerThread)
 

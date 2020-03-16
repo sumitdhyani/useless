@@ -18,11 +18,12 @@ public:
 	virtual ~IConsumerThread() {}
 };
 
-
+class WorkerThread;
 //Keep the template parameter as something assignable and copyable, otherwise results may be underministic
 template <class T>
 class FifoConsumerThread : public IConsumerThread<T>
 {
+	friend class WorkerThread;
 protected:
 	typedef std::vector<T> ConsumerQueue;
 	DEFINE_PTR(ConsumerQueue)
@@ -37,6 +38,7 @@ protected:
 		m_cond(cond)
 	{
 		m_terminate = false;
+		m_consumerBusy = false;
 		m_thread = stdThread(&FifoConsumerThread::run, this);
 	}
 private:
@@ -44,6 +46,7 @@ private:
 	stdMutexPtr m_mutex;
 	ConditionVariablePtr m_cond;
 	std::atomic<bool> m_terminate;
+	bool m_consumerBusy;//Used to avoid unnecessary signalling of consumer if it is busy processing the queue, purely performance
 	stdThread m_thread;
 	std::function<void(T)> m_predicate;
 
@@ -55,13 +58,19 @@ private:
 
 			{
 				stdUniqueLock lock(*m_mutex);
+
+				if (m_queue->empty())
+				{
+					m_consumerBusy = false;
+					m_cond->wait(lock);
+				}
+
 				m_queue->swap(local);
+				m_consumerBusy = true;
 			}
 
 			for(auto const& currentItem : local)
 				m_predicate(currentItem);
-
-			m_cond->wait();
 		}
 	}
 
@@ -79,9 +88,14 @@ public:
 		{
 			stdUniqueLock lock(*m_mutex);
 			m_queue->push_back(item);
+
+			if (!m_consumerBusy)
+			{
+				lock.unlock();
+				m_cond->notify_one();
+			}
 		}
 
-		m_cond->notify_one();
 	}
 
 	virtual void kill()
@@ -119,16 +133,6 @@ protected:
 	typedef std::vector<TimeItemPair> ConsumerQueue;
 	DEFINE_PTR(ConsumerQueue)
 
-	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond)
-		:m_itemQueue(queue),
-		m_mutex(mutex),
-		m_predicate(predicate),
-		m_cond(cond)
-	{
-		m_terminate = false;
-		m_thread = stdThread(&TimedConsumerThread::run, this);
-	}
-
 private:
 	ConsumerQueuePtr m_itemQueue;
 	stdMutexPtr m_mutex;
@@ -139,6 +143,17 @@ private:
 	std::function<void(T)> m_predicate;
 
 public:
+
+	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond)
+		:m_itemQueue(queue),
+		m_mutex(mutex),
+		m_predicate(predicate),
+		m_cond(cond)
+	{
+		m_terminate = false;
+		m_thread = stdThread(&TimedConsumerThread::run, this);
+	}
+
 
 	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate)
 		:TimedConsumerThread(queue, mutex, predicate, ConditionVariablePtr(new ConditionVariable))
@@ -171,22 +186,22 @@ public:
 					m_processingQueue[currentItem.first].push_back(currentItem.second);
 			}
 
+			auto it = m_processingQueue.begin();
+			if (m_processingQueue.empty())
 			{
-				auto it = m_processingQueue.begin();
-				while (it != m_processingQueue.end() && (it->first <= std::chrono::system_clock::now()))
+				if (it->first <= std::chrono::system_clock::now())
 				{
-					auto const& processingQueue = it->second;
-					for (auto const& item : processingQueue)
+					auto& processingQueue = it->second;
+					for (auto& item : processingQueue)
 						m_predicate(item);
 
-					it++;
+					m_processingQueue.erase(it);
 				}
-
-				m_processingQueue.erase(m_processingQueue.begin(), it);
+				else
+					m_cond->wait_until(it->first);
 			}
-
-			m_processingQueue.empty()? m_cond->wait() : 
-									   m_cond->wait_until(m_processingQueue.begin()->first);
+			else
+				m_cond->wait();
 		}
 	}
 
