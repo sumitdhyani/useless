@@ -18,10 +18,20 @@ public:
 	virtual ~IConsumerThread() {}
 };
 
+
+template <class T>
+class ISuspendableConsumerThread : public IConsumerThread<T>
+{
+public:
+	virtual void pause() = 0;
+	virtual void resume() = 0;
+	virtual ~ISuspendableConsumerThread() {}
+};
+
 class WorkerThread;
 //Keep the template parameter as something assignable and copyable, otherwise results may be underministic
 template <class T>
-class FifoConsumerThread : public IConsumerThread<T>
+class FifoConsumerThread : public ISuspendableConsumerThread<T>
 {
 	friend class WorkerThread;
 protected:
@@ -39,6 +49,7 @@ protected:
 	{
 		m_terminate = false;
 		m_consumerBusy = false;
+		m_paused = false;
 		m_thread = stdThread(&FifoConsumerThread::run, this);
 	}
 private:
@@ -47,6 +58,7 @@ private:
 	ConditionVariablePtr m_cond;
 	std::atomic<bool> m_terminate;
 	bool m_consumerBusy;//Used to avoid unnecessary signalling of consumer if it is busy processing the queue, purely performance
+	bool m_paused;//signifies whether is the thread is paused
 	stdThread m_thread;
 	std::function<void(T)> m_predicate;
 
@@ -58,6 +70,9 @@ private:
 
 			{
 				stdUniqueLock lock(*m_mutex);
+
+				if (m_paused)
+					m_cond->wait(lock);
 
 				if (m_queue->empty())
 				{
@@ -89,13 +104,45 @@ public:
 			stdUniqueLock lock(*m_mutex);
 			m_queue->push_back(item);
 
-			if (!m_consumerBusy)
+			if (!(m_paused || m_consumerBusy))
 			{
 				lock.unlock();
 				m_cond->notify_one();
 			}
 		}
 
+	}
+
+	virtual void pause()
+	{
+		stdUniqueLock lock(*m_mutex);
+
+		if (m_paused)
+		{
+			lock.unlock();
+			throw std::runtime_error("Thread already paused");
+		}
+		else
+			m_paused = true;
+	}
+
+
+	
+	virtual void resume()
+	{
+		stdUniqueLock lock(*m_mutex);
+
+		if (!m_paused)
+		{
+			lock.unlock();
+			throw std::runtime_error("Thread already running");
+		}
+		else
+		{
+			m_paused = false;
+			lock.unlock();
+			m_cond->notify_one();
+		}
 	}
 
 	virtual void kill()
@@ -187,7 +234,7 @@ public:
 			}
 
 			auto it = m_processingQueue.begin();
-			if (m_processingQueue.empty())
+			if (!m_processingQueue.empty())
 			{
 				if (it->first <= std::chrono::system_clock::now())
 				{
