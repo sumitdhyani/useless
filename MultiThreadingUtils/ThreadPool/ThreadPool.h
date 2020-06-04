@@ -13,11 +13,11 @@ class ThreadPool
 {
 	std::vector<std::shared_ptr<WorkerThread>> m_workers;
 	std::shared_ptr<std::vector<Task>> m_queue;
-	stdMutexPtr m_mutex;
-	ConditionVariablePtr m_cond;
+	stdMutex_SPtr m_mutex;
+	ConditionVariable_SPtr m_cond;
 
 protected:
-	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex, ConditionVariablePtr cond)
+	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutex_SPtr mutex, ConditionVariable_SPtr cond)
 		:m_queue(queue),
 		m_mutex(mutex),
 		m_cond(cond)
@@ -29,8 +29,8 @@ protected:
 	}
 
 public:
-	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex):
-		ThreadPool(numThreads, queue, mutex, ConditionVariablePtr(new ConditionVariable))
+	ThreadPool(UINT numThreads, std::shared_ptr<std::vector<Task>> queue, stdMutex_SPtr mutex):
+		ThreadPool(numThreads, queue, mutex, ConditionVariable_SPtr(new ConditionVariable))
 	{
 	}
 

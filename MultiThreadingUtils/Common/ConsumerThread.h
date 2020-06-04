@@ -41,7 +41,7 @@ protected:
 	//Visible to only subclasses, as owning this condition variable by the client code can be dangerous
 	//in case the application programmer tries to do something fancy but is not aware of the dangerous edge cases
 	//The most likely side effects can then be an infinitely waiting thread or unexpected spurious wakeups
-	FifoConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond )
+	FifoConsumerThread(ConsumerQueue_SPtr queue, stdMutex_SPtr mutex, std::function<void(T)> predicate, ConditionVariable_SPtr cond )
 		:m_queue(queue),
 		m_mutex(mutex),
 		m_predicate(predicate),
@@ -53,9 +53,9 @@ protected:
 		m_thread = stdThread(&FifoConsumerThread::run, this);
 	}
 private:
-	ConsumerQueuePtr m_queue;
-	stdMutexPtr m_mutex;
-	ConditionVariablePtr m_cond;
+	ConsumerQueue_SPtr m_queue;
+	stdMutex_SPtr m_mutex;
+	ConditionVariable_SPtr m_cond;
 	std::atomic<bool> m_terminate;
 	bool m_consumerBusy;//Used to avoid unnecessary signalling of consumer if it is busy processing the queue, purely performance
 	bool m_paused;//signifies whether is the thread is paused
@@ -92,8 +92,8 @@ private:
 
 public:
 
-	FifoConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate)
-		:FifoConsumerThread(queue, mutex, predicate, ConditionVariablePtr(new ConditionVariable))
+	FifoConsumerThread(ConsumerQueue_SPtr queue, stdMutex_SPtr mutex, std::function<void(T)> predicate)
+		:FifoConsumerThread(queue, mutex, predicate, ConditionVariable_SPtr(new ConditionVariable))
 	{
 	}
 
@@ -181,9 +181,9 @@ protected:
 	DEFINE_PTR(ConsumerQueue)
 
 private:
-	ConsumerQueuePtr m_itemQueue;
-	stdMutexPtr m_mutex;
-	ConditionVariablePtr m_cond;
+	ConsumerQueue_SPtr m_itemQueue;
+	stdMutex_SPtr m_mutex;
+	ConditionVariable_SPtr m_cond;
 	std::map<std::chrono::system_clock::time_point, std::vector<T>> m_processingQueue;
 	std::atomic<bool> m_terminate;
 	stdThread m_thread;
@@ -191,7 +191,7 @@ private:
 
 public:
 
-	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate, ConditionVariablePtr cond)
+	TimedConsumerThread(ConsumerQueue_SPtr queue, stdMutex_SPtr mutex, std::function<void(T)> predicate, ConditionVariable_SPtr cond)
 		:m_itemQueue(queue),
 		m_mutex(mutex),
 		m_predicate(predicate),
@@ -202,8 +202,8 @@ public:
 	}
 
 
-	TimedConsumerThread(ConsumerQueuePtr queue, stdMutexPtr mutex, std::function<void(T)> predicate)
-		:TimedConsumerThread(queue, mutex, predicate, ConditionVariablePtr(new ConditionVariable))
+	TimedConsumerThread(ConsumerQueue_SPtr queue, stdMutex_SPtr mutex, std::function<void(T)> predicate)
+		:TimedConsumerThread(queue, mutex, predicate, ConditionVariable_SPtr(new ConditionVariable))
 	{
 	}
 

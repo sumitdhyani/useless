@@ -10,14 +10,14 @@ class WorkerThread
 protected:
 	
 
-	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex, ConditionVariablePtr cond)
+	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutex_SPtr mutex, ConditionVariable_SPtr cond)
 	{
 		m_consumer = std::shared_ptr<FifoConsumerThread<Task>>(new FifoConsumerThread<Task>(queue, mutex, [](Task task) {task();}, cond));
 	}
 
 public:
-	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutexPtr mutex) :
-		WorkerThread(queue, mutex, ConditionVariablePtr(new ConditionVariable))
+	WorkerThread(std::shared_ptr<std::vector<Task>> queue, stdMutex_SPtr mutex) :
+		WorkerThread(queue, mutex, ConditionVariable_SPtr(new ConditionVariable))
 	{}
 
 	void push(Task task)
@@ -38,7 +38,7 @@ typedef std::pair<std::chrono::system_clock::time_point, Task> TimeTaskPair;
 class TimedTaskWorkerThread : public TimedConsumerThread<Task>
 {
 public:
-	TimedTaskWorkerThread(std::shared_ptr<std::vector<TimeTaskPair>> queue, stdMutexPtr mutex, ConditionVariablePtr cond) :
+	TimedTaskWorkerThread(std::shared_ptr<std::vector<TimeTaskPair>> queue, stdMutex_SPtr mutex, ConditionVariable_SPtr cond) :
 		TimedConsumerThread<Task>(queue, mutex, [](Task task) {task();}, cond)
 	{}
 protected:
@@ -49,3 +49,4 @@ protected:
 	}
 };
 DEFINE_PTR(TimedTaskWorkerThread)
+DEFINE_UNIQUE_PTR(TimedTaskWorkerThread)
