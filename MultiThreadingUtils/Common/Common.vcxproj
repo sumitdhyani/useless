@@ -137,13 +137,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CommonDefs.cpp" />
     <ClCompile Include="ConditionVariable.cpp" />
     <ClCompile Include="ConsumerThread.cpp" />
+    <ClCompile Include="RingBuffer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CommonDefs.h" />
     <ClInclude Include="ConditionVariable.h" />
     <ClInclude Include="ConsumerThread.h" />
+    <ClInclude Include="RingBuffer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />

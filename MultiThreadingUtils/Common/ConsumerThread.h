@@ -8,6 +8,7 @@
 #include <thread>
 #include <memory>
 #include "ConditionVariable.h"
+#include "RingBuffer.h""
 
 template <class T>
 class IConsumerThread
@@ -265,6 +266,106 @@ public:
 	}
 
 	~TimedConsumerThread()
+	{
+		kill();
+	}
+};
+
+
+template <class T>
+class ThrottledConsumerThread : public IConsumerThread<T>
+{
+protected:
+	typedef std::vector<T> ConsumerQueue;
+	DEFINE_PTR(ConsumerQueue)
+
+
+private:
+	ConsumerQueue_SPtr m_queue;
+	stdMutex m_mutex;
+	ConditionVariable m_cond;
+	std::atomic<bool> m_terminate;
+	bool m_consumerBusy;//Used to avoid unnecessary signalling of consumer if it is busy processing the queue, purely performance
+	stdThread m_thread;
+	std::function<void(T)> m_predicate;
+	duration m_unitTime;
+	size_t m_numTransactions;
+	RingBuffer<time_point> m_transactionLog;
+
+	virtual void run()
+	{
+		while (!m_terminate)
+		{
+			ConsumerQueue local;
+
+			{
+				stdUniqueLock lock(m_mutex);
+
+				if (m_queue->empty())
+				{
+					m_consumerBusy = false;
+					m_cond.wait(lock);
+				}
+
+				m_queue->swap(local);
+				m_consumerBusy = true;
+			}
+
+			for (auto const& currentItem : local)
+			{
+				if ((m_transactionLog.size() == m_numTransactions) &&
+					((now() - m_transactionLog.front()) < m_unitTime)
+				   )
+					m_cond.wait_until(m_transactionLog.front() + m_unitTime);
+
+				m_transactionLog.push(now());
+				m_predicate(currentItem);
+			}
+		}
+	}
+
+
+public:
+
+	ThrottledConsumerThread(ConsumerQueue_SPtr queue, std::function<void(T)> predicate, duration unitTime, size_t numTransactions)
+		:m_queue(queue),
+		m_predicate(predicate),
+		m_unitTime(unitTime),
+		m_numTransactions(numTransactions),
+		m_transactionLog(numTransactions)
+	{
+		m_terminate = false;
+		m_consumerBusy = false;
+		m_thread = stdThread(&ThrottledConsumerThread::run, this);
+	}
+
+	virtual void push(T item)
+	{
+		{
+			stdUniqueLock lock(m_mutex);
+			m_queue->push_back(item);
+
+			if (!m_consumerBusy)
+			{
+				lock.unlock();
+				m_cond.notify_one();
+			}
+		}
+	}
+
+	virtual void kill()
+	{
+		stdUniqueLock lock(m_mutex);
+		if (!m_terminate)
+		{
+			m_terminate = true;
+			lock.unlock();
+			m_cond.notify_one();
+			m_thread.join();
+		}
+	}
+
+	~ThrottledConsumerThread()
 	{
 		kill();
 	}

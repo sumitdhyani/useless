@@ -13,6 +13,8 @@ public:
 DEFINE_PTR(ITimer)
 DEFINE_UNIQUE_PTR(ITimer)
 
+
+//Pass "default" to get the production implementation
 class ITimerFactory
 {
 public:
@@ -40,10 +42,10 @@ public:
 
 		{
 			std::unique_lock<stdMutex> lock(m_mutex);
-			if (m_taskListByTimerID.find(timerId) == m_taskListByTimerID.end())
-				m_taskListByTimerID[timerId] = TaskDurationPair(task, interval);
-			else
-				throw std::runtime_error("Unable to install timer");
+			while(m_taskListByTimerID.find(timerId) != m_taskListByTimerID.end())
+				timerId = std::hash<long long>()(std::chrono::system_clock::now().time_since_epoch().count() + rand());
+
+			m_taskListByTimerID[timerId] = TaskDurationPair(task, interval);
 		}
 
 		m_workerThread->push(TimeTaskPair(std::chrono::system_clock::now(),
