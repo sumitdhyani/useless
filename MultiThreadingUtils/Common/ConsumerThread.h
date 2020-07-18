@@ -7,6 +7,8 @@
 #include <chrono>
 #include <thread>
 #include <memory>
+#include <queue>
+#include <unordered_map>
 #include "ConditionVariable.h"
 #include "RingBuffer.h""
 
@@ -173,19 +175,34 @@ public:
 	}
 };
 
+template<class T>
+using TimeAndItemAndCallback = std::tuple<time_point, T, std::function<void(bool)>>;
+
 template <class T>
-class TimedConsumerThread : public IConsumerThread<std::pair<std::chrono::system_clock::time_point, T>>
+class TimedConsumerThread : public IConsumerThread<TimeAndItemAndCallback<T>>
 {
 protected:
-	typedef std::pair<std::chrono::system_clock::time_point, T> TimeItemPair;
-	typedef std::vector<TimeItemPair> ConsumerQueue;
+	typedef TimeAndItemAndCallback<T> TimeAndItemAndCallback;
+	typedef std::vector<TimeAndItemAndCallback> ConsumerQueue;
+	typedef std::unordered_map<size_t, T> ItemList;
+	typedef std::pair<time_point, typename ItemList::iterator> ProcessingQueueItem;
+
 	DEFINE_PTR(ConsumerQueue)
 
 private:
 	ConsumerQueue_SPtr m_itemQueue;
 	stdMutex_SPtr m_mutex;
 	ConditionVariable_SPtr m_cond;
-	std::map<std::chrono::system_clock::time_point, std::vector<T>> m_processingQueue;
+	ItemList m_itemsById;
+
+	struct customComp
+	{
+		bool operator()(ProcessingQueueItem t1, ProcessingQueueItem t2)
+		{
+			return std::greater<time_point>()(t1.first, t2.first);
+		}
+	};
+	std::priority_queue < ProcessingQueueItem, std::vector<ProcessingQueueItem>, customComp > m_processingQueue;
 	std::atomic<bool> m_terminate;
 	stdThread m_thread;
 	std::function<void(T)> m_predicate;
@@ -208,18 +225,24 @@ public:
 	{
 	}
 
-	virtual void push(TimeItemPair timeItemPair)
+	virtual void push(TimeAndItemAndCallback timeAndItemAndCallback)
 	{
 		{
 			stdUniqueLock lock(*m_mutex);
-			m_itemQueue->push_back(timeItemPair);
+			m_itemQueue->push_back(timeAndItemAndCallback);
 		}
 
 		m_cond->notify_one();
 	}
 
+	void push(time_point scheduleTime, T item, std::function<void(size_t)> callback)
+	{
+		push(TimeAndItemAndCallback(scheduleTime, item, callback));
+	}
+
 	virtual void run()
 	{
+		size_t itemID = 0;
 		while (!m_terminate)
 		{
 			{
@@ -231,26 +254,45 @@ public:
 				}
 
 				for (auto currentItem : local)
-					m_processingQueue[currentItem.first].push_back(currentItem.second);
-			}
-
-			auto it = m_processingQueue.begin();
-			if (!m_processingQueue.empty())
-			{
-				if (it->first <= std::chrono::system_clock::now())
 				{
-					auto& processingQueue = it->second;
-					for (auto& item : processingQueue)
-						m_predicate(item);
+					auto it = m_itemsById.insert({ itemID, std::get<1>(currentItem) });
 
-					m_processingQueue.erase(it);
+					std::get<2>(currentItem)(itemID);
+					m_processingQueue.push(ProcessingQueueItem(std::get<0>(currentItem), it.first));
+					itemID++;
 				}
-				else
-					m_cond->wait_until(it->first);
 			}
+
+			//here we pick only the top element because we want to ensure first scheduled - first executed policy
+			if (!m_processingQueue.empty() && (m_processingQueue.top().first <= now()))
+			{
+				m_predicate(m_processingQueue.top().second->second);
+				m_itemsById.erase(m_processingQueue.top().second);
+				m_processingQueue.pop();
+			}
+
+			if (!m_processingQueue.empty())
+				m_cond->wait_until(m_processingQueue.top().first);
 			else
 				m_cond->wait();
 		}
+	}
+
+	void cancelItem(size_t itemId, std::function<void(bool)> callback)
+	{
+		auto unschedulePendingItem = [this, callback, itemId]()
+		{
+			auto it = m_itemsById.find(itemId);
+			bool retVal = true;
+			if (it != m_itemsById.end())
+				it->second = []() {};
+			else
+				retVal = false;
+
+			callback(retVal);
+		};
+
+		push(now(), unschedulePendingItem, [](size_t) {});
 	}
 
 	virtual void kill()

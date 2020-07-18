@@ -58,21 +58,28 @@ public:
 	}
 };
 
-typedef std::pair<std::chrono::system_clock::time_point, Task> TimedTask;
-
-typedef std::pair<std::chrono::system_clock::time_point, Task> TimeTaskPair;
-class TimedTaskWorkerThread : public TimedConsumerThread<Task>
+class Scheduler
 {
-public:
-	TimedTaskWorkerThread(std::shared_ptr<std::vector<TimeTaskPair>> queue, stdMutex_SPtr mutex, ConditionVariable_SPtr cond) :
-		TimedConsumerThread<Task>(queue, mutex, [](Task task) {task();}, cond)
-	{}
-protected:
+	typedef TimedConsumerThread<Task> TimedConsumerThread;
+	DEFINE_PTR(TimedConsumerThread)
 
-	virtual void processItem(Task task)
+	TimedConsumerThread_SPtr m_scheduler;
+
+public:
+	Scheduler(std::shared_ptr<std::vector<TimeAndItemAndCallback<Task>>> queue, stdMutex_SPtr mutex, ConditionVariable_SPtr cond)
 	{
-		task();
+		m_scheduler = std::make_unique<TimedConsumerThread>(queue, mutex, [](Task task) {task(); }, cond);
+	}
+
+	void schedule(time_point scheduleTime, Task task, std::function<void(size_t)> callback)
+	{
+		m_scheduler->push(scheduleTime, task, callback);
+	}
+
+	void cancelTask(size_t taskId, std::function<void(bool)> callback)
+	{
+		m_scheduler->cancelItem(taskId, callback);
 	}
 };
-DEFINE_PTR(TimedTaskWorkerThread)
-DEFINE_UNIQUE_PTR(TimedTaskWorkerThread)
+DEFINE_PTR(Scheduler)
+DEFINE_UNIQUE_PTR(Scheduler)

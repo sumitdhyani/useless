@@ -27,11 +27,11 @@ class Timer : public ITimer
 {
 	typedef std::pair<Task, duration> TaskDurationPair;
 
-	TimedTaskWorkerThread_UPtr m_workerThread;
+	Scheduler_UPtr m_workerThread;
 	std::unordered_map<size_t, TaskDurationPair> m_taskListByTimerID;
 	stdMutex m_mutex;
 public:
-	Timer(TimedTaskWorkerThread_UPtr workerThread)
+	Timer(Scheduler_UPtr workerThread)
 	{
 		m_workerThread = std::move(workerThread);
 	}
@@ -48,10 +48,7 @@ public:
 			m_taskListByTimerID[timerId] = TaskDurationPair(task, interval);
 		}
 
-		m_workerThread->push(TimeTaskPair(std::chrono::system_clock::now(),
-										  std::bind(&Timer::repeatTask, this, timerId)
-										 )
-							);
+		m_workerThread->schedule(std::chrono::system_clock::now(), std::bind(&Timer::repeatTask, this, timerId), [](size_t) {});
 
 		return timerId;
 	}
@@ -81,10 +78,10 @@ private:
 			//and this can make other timers miss their schedule
 			lock.unlock();
 			taskSchedulingInfo.first();
-			m_workerThread->push(TimeTaskPair(std::chrono::system_clock::now() + taskSchedulingInfo.second,
-											  std::bind(&Timer::repeatTask, this, timerId)
-											 )
-								);
+			m_workerThread->schedule(std::chrono::system_clock::now() + taskSchedulingInfo.second,
+									 std::bind(&Timer::repeatTask, this, timerId),
+									[](size_t) {}
+									);
 		}
 	}
 };
@@ -94,6 +91,6 @@ class TimerFactory : public ITimerFactory
 public:
 	ITimer_UPtr create(std::string type)
 	{
-		return ITimer_UPtr(new Timer(std::make_unique<TimedTaskWorkerThread>(std::make_shared<std::vector<TimeTaskPair>>(), std::make_shared<stdMutex>(), std::make_shared<ConditionVariable>())));
+		return ITimer_UPtr(new Timer(std::make_unique<Scheduler>(std::make_shared<std::vector<TimeAndItemAndCallback<Task>>>(), std::make_shared<stdMutex>(), std::make_shared<ConditionVariable>())));
 	}
 };
